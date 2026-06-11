@@ -30,15 +30,15 @@ This is a Dockerized file server that uses a WireGuard VPN to share video clips 
 
 ## Table of Contents
 
-1. [Overview](#1-overview)
-2. [How It Works](#2-how-it-works)
-3. [How the Video Pipeline Works](#3-how-the-video-pipeline-works)
-4. [The Corruption-Fix Algorithm Explained](#4-the-corruption-fix-algorithm-explained)
-5. [Requirements](#5-requirements)
-6. [Installation](#6-installation)
+1. [ℹ️Overview](#1-overview)
+2. [⚙️How It Works](#2-how-it-works)
+3. [🎞️How the Video Pipeline Works](#3-how-the-video-pipeline-works)
+4. [🩹The Corruption-Fix Algorithm Explained](#4-the-corruption-fix-algorithm-explained)
+5. [⚠️Requirements](#5-requirements)
+6. [🔧Installation](#6-installation)
    - 6.1 [Windows — Setting up WSL2](#61-windows--setting-up-wsl2)
    - 6.2 [Linux — Direct setup](#62-linux--direct-setup)
-7. [Usage Guide](#7-usage-guide)
+7. [🚀Usage Guide](#7-usage-guide)
    - 7.1 [Task: First Boot — Start the Server](#71-task-first-boot--start-the-server)
    - 7.2 [Task: Register a New Client (Server)](#72-task-register-a-new-client-in-server)
    - 7.3 [Task: Connect a Client — Windows](#73-task-connect-a-client--windows)
@@ -47,30 +47,32 @@ This is a Dockerized file server that uses a WireGuard VPN to share video clips 
    - 7.6 [Task: Upload and Access Files](#76-task-upload-and-access-files)
    - 7.7 [Task: Process a Video](#77-task-process-a-video)
    - 7.8 [Task: Restart / Reset the Server](#78-task-restart--reset-the-server)
-8. [Reference: Ports & IPs](#8-reference-ports--ips)
-9. [Reference: Project Structure](#9-reference-project-structure)
-10. [Troubleshooting](#10-troubleshooting)
-11. [License](#11-license)
+8. [🔌Reference: Ports & IPs](#8-reference-ports--ips)
+9. [📁Reference: Project Structure](#9-reference-project-structure)
+10. [🩺Troubleshooting](#10-troubleshooting)
+11. [📜License](#11-license)
 
 ---
 
-## 1. Overview
+<a id="1-overview"></a>
+## ℹ️ 1. Overview
 
 PrivateClipServer turns any Linux machine (or a Windows machine via WSL2) into a private, VPN-protected file server with automatic video transcoding. Access is restricted exclusively to devices connected through a WireGuard VPN tunnel — the web interface is never exposed directly to the internet.
 
 **Key features:**
 
-- **VPN-gated access** — FileBrowser is only reachable from inside the WireGuard tunnel. No credentials are exposed to the open internet.
-- **Automatic peer registration** — Drop a client's public key as a `.txt` file into `data/keys_inbox/` and the server registers it automatically, no manual editing of config files needed.
-- **Automatic video transcoding** — Upload any `.mp4`, `.mkv`, `.mov` or `.avi` to `raw/` and a transcoded, web-compatible version appears in `processed/` automatically.
-- **Live progress bar** — A real-time encoding progress bar is injected into the FileBrowser UI via Nginx, showing filename, percentage, ETA, speed, and a queue of pending videos.
-- **Corruption-tolerant encoding** — Videos from sources like Nvidia Instant Replay that cut mid-GOP are automatically repaired before transcoding using a Remux-Trim scan strategy.
-- **Single-command startup** — One `bash main_use.sh` brings up all four services.
-- **Cross-platform clients** — Client setup scripts available for Windows, Linux/macOS, and mobile (QR code).
+- 🔒 **VPN-gated access** — FileBrowser is only reachable from inside the WireGuard tunnel. No credentials are exposed to the open internet.
+- 🔑 **Automatic peer registration** — Drop a client's public key as a `.txt` file into `data/keys_inbox/` and the server registers it automatically, no manual editing of config files needed.
+- 🎞️ **Automatic video transcoding** — Upload any `.mp4`, `.mkv`, `.mov` or `.avi` to `raw/` and a transcoded, web-compatible version appears in `processed/` automatically.
+- 📊 **Live progress bar** — A real-time encoding progress bar is injected into the FileBrowser UI via Nginx, showing filename, percentage, ETA, speed, and a queue of pending videos.
+- 🩹 **Corruption-tolerant encoding** — Videos from sources like Nvidia Instant Replay that cut mid-GOP are automatically repaired before transcoding using a Remux-Trim scan strategy.
+- ⚡ **Single-command startup** — One `bash main_use.sh` brings up all four services.
+- 📱 **Cross-platform clients** — Client setup scripts available for Windows, Linux/macOS, and mobile (QR code).
 
 ---
 
-## 2. How It Works
+<a id="2-how-it-works"></a>
+## ⚙️ 2. How It Works
 
 The system is composed of four Docker containers that share volumes and, where relevant, a network namespace.
 
@@ -101,7 +103,8 @@ A container running three background daemons in parallel:
 
 ---
 
-## 3. How the Video Pipeline Works
+<a id="3-how-the-video-pipeline-works"></a>
+## 🎞️ 3. How the Video Pipeline Works
 
 ```
   Client uploads file via FileBrowser
@@ -162,7 +165,8 @@ A container running three background daemons in parallel:
 
 ---
 
-## 4. The Corruption-Fix Algorithm Explained
+<a id="4-the-corruption-fix-algorithm-explained"></a>
+## 🩹 4. The Corruption-Fix Algorithm Explained
 
 ### Background: why some clips are corrupted
 
@@ -237,7 +241,8 @@ for PROBE_T in 0, 1, 2, 3, ... (seconds):
 
 ---
 
-## 5. Requirements
+<a id="5-requirements"></a>
+## ⚠️ 5. Requirements
 
 ### Server
 
@@ -256,7 +261,8 @@ for PROBE_T in 0, 1, 2, 3, ... (seconds):
 
 ---
 
-## 6. Installation
+<a id="6-installation"></a>
+## 🔧 6. Installation
 
 ### 6.1 Windows — Setting up WSL2
 
@@ -303,7 +309,8 @@ cd PrivateClipServer
 
 ---
 
-## 7. Usage Guide
+<a id="7-usage-guide"></a>
+## 🚀 7. Usage Guide
 
 ### 7.1 Task: First Boot — Start the Server
 
@@ -522,7 +529,8 @@ sudo docker compose down --rmi all --remove-orphans
 
 ---
 
-## 8. Reference: Ports & IPs
+<a id="8-reference-ports--ips"></a>
+## 🔌 8. Reference: Ports & IPs
 
 ### Ports
 
@@ -550,7 +558,8 @@ sudo docker compose down --rmi all --remove-orphans
 
 ---
 
-## 9. Reference: Project Structure
+<a id="9-reference-project-structure"></a>
+## 📁 9. Reference: Project Structure
 
 ```
 privateclipserver/
@@ -603,7 +612,8 @@ privateclipserver/
 
 ---
 
-## 10. Troubleshooting
+<a id="10-troubleshooting"></a>
+## 🩺 10. Troubleshooting
 
 ### FileBrowser is not accessible at `http://10.0.0.1:8080`
 
@@ -671,7 +681,8 @@ This is expected if `data/wireguard_config/` was deleted or the server's key pai
 
 ---
 
-## 11. License
+<a id="11-license"></a>
+## 📜 11. License
 
 This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. See [LICENSE](./LICENSE) for the full text.
 
