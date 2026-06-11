@@ -1,0 +1,18 @@
+# Ignore the content of data/* but keep the folder structure.
+data/filebrowser_config/*
+data/keys_inbox/*
+data/processed/*
+data/raw/*
+data/wireguard_config/*
+
+# Exceptions: keep the .gitkeep files to register the folders.
+!data/filebrowser_config/.gitkeep
+!data/keys_inbox/.gitkeep
+!data/processed/.gitkeep
+!data/raw/.gitkeep
+!data/wireguard_config/.gitkeep
+
+# Defensive ignore: ignore possibles extra non-native project files.
+*.conf
+!services/nginx/nginx.conf
+.vscode/

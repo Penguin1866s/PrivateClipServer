@@ -1,0 +1,55 @@
+#version: '3.8'
+
+services:
+  watchers:
+    build: ./services/watchers
+    container_name: privateclipserver_watchers
+    volumes:
+      - ./data/raw:/data/raw
+      - ./data/processed:/data/processed
+      - ./data/keys_inbox:/data/keys_inbox             # Monitor the FileBrowser mailbox.
+      - ./data/wireguard_config:/etc/wireguard         # Modify the VPN(WireGuard) configuration.
+      - /var/run/docker.sock:/var/run/docker.sock # Master plug to restart the VPN(WireGuard).
+    restart: unless-stopped
+
+  filebrowser:
+    build: ./services/filebrowser
+    container_name: privateclipserver_filebrowser
+    network_mode: "service:wireguard"             # Merge the network of filebrowser with the wireguard, to be avaliable search "10.0.0.1:8080".
+    depends_on:                                   # Wait to start the container of wireguard.
+      - wireguard
+    #ports:
+    #  - "8080:8080"
+    volumes:
+      - ./data/raw:/data/raw
+      - ./data/processed:/data/processed
+      - ./data/keys_inbox:/data/keys_inbox           # The admin user leaves the .txt files here with the public keys for the new peers.
+      - ./data/filebrowser_config:/config
+    restart: unless-stopped
+
+  nginx:
+    build: ./services/nginx
+    container_name: privateclipserver_nginx
+    network_mode: "service:wireguard"
+    depends_on:
+      - filebrowser
+    volumes:
+      - ./data/processed:/data/processed
+    restart: unless-stopped
+
+
+  wireguard:
+    build: ./services/wireguard
+    container_name: privateclipserver_wireguard
+    cap_add:
+      - NET_ADMIN         # Gives permission to modify network rules (neccesary for VPN(WireGuard)).
+      - SYS_MODULE        # Gives permission to interact with Linux kernel modules.
+    sysctls:
+      - net.ipv4.ip_forward=1
+    ports:
+      - "8080:8080"
+      - "51820:51820/udp"
+    volumes:
+      - ./data/wireguard_config:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    restart: unless-stopped
