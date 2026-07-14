@@ -134,7 +134,8 @@ while true; do
         # completely independent of the original corrupted avcC.
         ffmpeg -y \
             -ss "$PROBE_T" \
-            -i "$INPUT" \
+            -i "$INPUT" 
+            -map 0 \
             -c copy \
             -avoid_negative_ts make_zero \
             "$TEST_FILE" 2>/dev/null
@@ -199,14 +200,61 @@ while true; do
     > "$PROGRESS_PIPE_FILE"
     /app/progress_bar_writer.sh "$FILENAME" "$PROGRESS_PIPE_FILE" "$QUEUE_JSON" &
 
-    ffmpeg -y \
-        -fflags +discardcorrupt \
-        -i "$ENCODE_INPUT" \
-        -progress "$PROGRESS_PIPE_FILE" \
-        -nostats \
-        -map 0 \
-        -c:v libx264 -crf 23 -preset medium -g 60 -c:a aac -b:a 192k -pix_fmt yuv420p \
-        "$OUTPUT"
+    # --- MIXED AUDIO TRACK (web playback fix) ---
+    # Context: browsers (the FileBrowser HTML5 player) only play ONE audio track (the one marked as 'default'),
+    # so with separated system+mic tracks you only hear one of them in the web UI.
+    # VLC can play all tracks at once, but that is a VLC-only feature, not a browser feature.
+
+    # The strategy solution:
+    # 1. If the video has exactly 2 audio tracks (system + mic), generate a 3rd track mixing both.
+    # 2. Place the mix FIRST (a:0) and mark it as 'default' -> browsers and normal players reproduce ONLY the mix (no echo).
+    # 3. Keep the 2 original tracks untouched behind it (a:1, a:2) -> for editing, just mute/remove the first track (A1) in the editor.
+
+    # Count how many audio tracks the input has.
+    AUDIO_TRACKS=$(ffprobe -v error \
+        -select_streams a \
+        -show_entries stream=index \
+        -of csv=p=0 \
+        "$ENCODE_INPUT" 2>/dev/null | wc -l)
+        # -select_streams a ---> inspect only the audio streams.
+        # -show_entries stream=index ---> obtain only the index field of each stream (one line per track).
+        # -of csv=p=0 ---> filter, plain output without headers.
+        # wc -l ---> word count lines = number of audio tracks.
+
+    if [ "$AUDIO_TRACKS" -eq 2 ]; then
+        echo "[queue_processor] 2 audio tracks detected. Encoding with mixed default track."
+        ffmpeg -y \
+            -fflags +discardcorrupt \
+            -i "$ENCODE_INPUT" \
+            -progress "$PROGRESS_PIPE_FILE" \
+            -nostats \
+            -filter_complex "[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[mix]" \
+            -map 0:v \
+            -map "[mix]" \
+            -map 0:a \
+            -c:v libx264 -crf 23 -preset medium -g 60 -c:a aac -b:a 192k -pix_fmt yuv420p \
+            -disposition:a:0 default \
+            -disposition:a:1 0 \
+            -disposition:a:2 0 \
+            -metadata:s:a:0 title="Mix (System+Mic)" \
+            -metadata:s:a:1 title="System" \
+            -metadata:s:a:2 title="Mic" \
+            "$OUTPUT"
+            # -filter_complex "[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[mix]" # Mix the 2 audio tracks into a new one labeled [mix]. normalize=0 keeps original volumes (default halves them).
+            # -map 0:v / -map "[mix]" / -map 0:a # Track order in the output: video, mix (a:0), originals (a:1, a:2). The order of the -map defines the track order.
+            # -disposition:a:0 default # Mark the mix as the 'default' track (the one browsers/players choose).
+            # -metadata:s:a:N title="..." # Visible name of each track in editors/players.
+    else
+        # 0, 1 or 3+ audio tracks: keep the original behaviour (no mix).
+        ffmpeg -y \
+            -fflags +discardcorrupt \
+            -i "$ENCODE_INPUT" \
+            -progress "$PROGRESS_PIPE_FILE" \
+            -nostats \
+            -map 0 \
+            -c:v libx264 -crf 23 -preset medium -g 60 -c:a aac -b:a 192k -pix_fmt yuv420p \
+            "$OUTPUT"
+    fi
 
     # Cleanup the temporary trimmed file if it was created
     [ -f "$TRIMMED_INPUT" ] && rm -f "$TRIMMED_INPUT"
