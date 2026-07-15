@@ -64,6 +64,7 @@ PrivateClipServer turns any Linux machine (or a Windows machine via WSL2) into a
 - 🔒 **VPN-gated access** — FileBrowser is only reachable from inside the WireGuard tunnel. No credentials are exposed to the open internet.
 - 🔑 **Automatic peer registration** — Drop a client's public key as a `.txt` file into `data/keys_inbox/` and the server registers it automatically, no manual editing of config files needed.
 - 🎞️ **Automatic video transcoding** — Upload any `.mp4`, `.mkv`, `.mov` or `.avi` to `raw/` and a transcoded, web-compatible version appears in `processed/` automatically.
+- 🔊 **Mixed default audio track** — Videos with two audio tracks (system + microphone) get a third track mixing both, placed first and marked as `default`, so browsers (which only play one track) reproduce everything. The two original tracks are kept untouched for editing.
 - 📊 **Live progress bar** — A real-time encoding progress bar is injected into the FileBrowser UI via Nginx, showing filename, percentage, ETA, speed, and a queue of pending videos.
 - 🩹 **Corruption-tolerant encoding** — Videos from sources like Nvidia Instant Replay that cut mid-GOP are automatically repaired before transcoding using a Remux-Trim scan strategy.
 - ⚡ **Single-command startup** — One `bash main_use.sh` brings up all four services.
@@ -150,6 +151,8 @@ A container running three background daemons in parallel:
 
 **Atomic writes:** `status.json` is never written directly. All writes go to `status.json.tmp` first, then renamed atomically. This prevents the browser from reading a half-written, invalid JSON file mid-update.
 
+**Audio tracks behaviour:** Browsers (and the FileBrowser HTML5 player) only play ONE audio track - the one marked as `default`. If the uploaded video has exactly 2 audio tracks (e.g. system + microphone from Nvidia Instant Replay), a 3rd track mixing both is generated, placed first (`Mix (System+Mic)`) and marked as `default`: the web UI and normal players reproduce the mix (no echo), while the 2 original tracks (`System`, `Mic`) are kept untouched behind it for editing - just mute/remove the first track (A1) in your editor. Videos with any other number of audio tracks are encoded as before, without a mix.
+
 **Transcoding settings applied:**
 
 | Parameter | Value | Notes |
@@ -162,6 +165,8 @@ A container running three background daemons in parallel:
 | Pixel format | `yuv420p` | Maximum browser and media player compatibility |
 | Corrupt frames | `-fflags +discardcorrupt` | Discards remaining bad frames gracefully |
 | Audio tracks | `-map 0` | Preserves all audio tracks |
+| Audio tracks | `-map 0:v -map "[mix]" -map 0:a` (2-track videos) / `-map 0` (others) | Preserves all audio tracks, mix first when generated |
+| Mixed track | `amix=inputs=2:duration=longest:normalize=0` + `-disposition:a:0 default` | Only when the video has exactly 2 audio tracks; marked as `default` so browsers play it |
 
 ---
 
@@ -500,6 +505,8 @@ Automatic — no manual steps needed once the file is uploaded.
 5. Once done, a new file named `<original_name>_(processed).mp4` appears in `processed/`.
 
 > The original file in `raw/` is kept untouched. Processing time depends on file size and the server's CPU.
+
+> If the video has two audio tracks (system + microphone), the processed file contains a third **mixed track marked as `default`**: browsers and normal players reproduce the mix, and the two original tracks are kept behind it for editing.
 
 ---
 
