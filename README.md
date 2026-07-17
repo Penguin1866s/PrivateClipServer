@@ -164,7 +164,6 @@ A container running three background daemons in parallel:
 | Audio bitrate | `192k` | Good audio quality |
 | Pixel format | `yuv420p` | Maximum browser and media player compatibility |
 | Corrupt frames | `-fflags +discardcorrupt` | Discards remaining bad frames gracefully |
-| Audio tracks | `-map 0` | Preserves all audio tracks |
 | Audio tracks | `-map 0:v -map "[mix]" -map 0:a` (2-track videos) / `-map 0` (others) | Preserves all audio tracks, mix first when generated |
 | Mixed track | `amix=inputs=2:duration=longest:normalize=0` + `-disposition:a:0 default` | Only when the video has exactly 2 audio tracks; marked as `default` so browsers play it |
 
