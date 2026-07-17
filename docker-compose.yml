@@ -4,6 +4,10 @@ services:
   watchers:
     build: ./services/watchers
     container_name: privateclipserver_watchers
+    environment:
+      - VIDEO_ENCODER=${VIDEO_ENCODER:-auto}    # Video encoder: auto (default) / vaapi (Intel iGPU) / cpu (libx264 brute force).
+    devices:
+      - /dev/dri:/dev/dri                       # Master plug to the Intel iGPU render nodes (needed for the vaapi hardware encoder).
     volumes:
       - ./data/raw:/data/raw
       - ./data/processed:/data/processed

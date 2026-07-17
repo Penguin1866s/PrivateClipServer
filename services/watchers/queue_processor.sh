@@ -32,6 +32,44 @@ build_queue_json() {
     echo "${json}]"
 }
 
+# --- VIDEO ENCODER SELECTION (auto / vaapi / cpu) ---
+# Context: libx264 is the "brute force" software encoder (runs on the CPU cores).
+# h264_vaapi uses the dedicated encode silicon of the Intel iGPU (the Quick Sync hardware)
+# through VAAPI (Video Acceleration API), the standard Linux interface for GPU video work.
+# Same visual result, but the encode runs in the iGPU -> much faster and a fraction of the power.
+
+# The encoder is selected with the VIDEO_ENCODER environment variable (see docker-compose.yml):
+#   auto  -> test the iGPU with a real 1-frame encode, use vaapi if it works, fallback to cpu. (default)
+#   vaapi -> force the Intel iGPU hardware encoder.
+#   cpu   -> force libx264 (brute force).
+VIDEO_ENCODER="${VIDEO_ENCODER:-auto}" # If the env var is not set, use 'auto' as default value.
+RENDER_DEVICE="/dev/dri/renderD128"    # The render node of the Intel iGPU (mapped in docker-compose.yml with 'devices:').
+
+if [ "$VIDEO_ENCODER" = "auto" ]; then
+    # Real probe: encode a tiny generated black clip with the iGPU.
+    # If this exits 0, the whole chain (device + driver + ffmpeg encoder) really works.
+    # We don't trust only the existence of $RENDER_DEVICE because it can exist without a working encode driver (example: WSL2).
+    if ffmpeg -v error -vaapi_device "$RENDER_DEVICE" \
+        -f lavfi -i color=black:s=64x64:d=0.1 \
+        -vf format=nv12,hwupload -c:v h264_vaapi \
+        -f null /dev/null 2>/dev/null; then
+        VIDEO_ENCODER="vaapi"
+    else
+        VIDEO_ENCODER="cpu"
+    fi
+fi
+
+if [ "$VIDEO_ENCODER" = "vaapi" ]; then
+    HW_INIT_ARGS="-vaapi_device $RENDER_DEVICE"       # Open the iGPU device (must go BEFORE the -i input).
+    VIDEO_CHAIN="format=nv12,hwupload"                # Convert the frames to nv12 (the pixel format the iGPU expects) and upload them to GPU memory.
+    VIDEO_ENCODE_ARGS="-c:v h264_vaapi -qp 24 -g 60"  # -qp 24 -> the hardware quality knob (equivalent role to '-crf 23' in libx264).
+else
+    HW_INIT_ARGS=""                                   # Nothing to init for the CPU path.
+    VIDEO_CHAIN="format=yuv420p"                      # Same effect as the old '-pix_fmt yuv420p' (most compatible web format), expressed as a filter.
+    VIDEO_ENCODE_ARGS="-c:v libx264 -crf 23 -preset medium -g 60"
+fi
+echo "[queue_processor] Video encoder selected: $VIDEO_ENCODER"
+
 echo "[queue_processor] Started."
 
 # Main loop: continuously check the queue for new entries and process them.
@@ -134,7 +172,7 @@ while true; do
         # completely independent of the original corrupted avcC.
         ffmpeg -y \
             -ss "$PROBE_T" \
-            -i "$INPUT" 
+            -i "$INPUT" \
             -map 0 \
             -c copy \
             -avoid_negative_ts make_zero \
@@ -225,14 +263,15 @@ while true; do
         echo "[queue_processor] 2 audio tracks detected. Encoding with mixed default track."
         ffmpeg -y \
             -fflags +discardcorrupt \
+            $HW_INIT_ARGS \
             -i "$ENCODE_INPUT" \
             -progress "$PROGRESS_PIPE_FILE" \
             -nostats \
-            -filter_complex "[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[mix]" \
-            -map 0:v \
+            -filter_complex "[0:v]${VIDEO_CHAIN}[vout];[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[mix]" \
+            -map "[vout]" \
             -map "[mix]" \
             -map 0:a \
-            -c:v libx264 -crf 23 -preset medium -g 60 -c:a aac -b:a 192k -pix_fmt yuv420p \
+            $VIDEO_ENCODE_ARGS -c:a aac -b:a 192k \
             -disposition:a:0 default \
             -disposition:a:1 0 \
             -disposition:a:2 0 \
@@ -240,6 +279,10 @@ while true; do
             -metadata:s:a:1 title="System" \
             -metadata:s:a:2 title="Mic" \
             "$OUTPUT"
+
+            # $HW_INIT_ARGS and $VIDEO_ENCODE_ARGS are expanded WITHOUT quotes on purpose -> bash splits them into separated arguments.
+            # The video now travels through the filter_complex too ([0:v] -> VIDEO_CHAIN -> [vout]) so the SAME command works for cpu and vaapi.
+
             # -filter_complex "[0:a:0][0:a:1]amix=inputs=2:duration=longest:normalize=0[mix]" # Mix the 2 audio tracks into a new one labeled [mix]. normalize=0 keeps original volumes (default halves them).
             # -map 0:v / -map "[mix]" / -map 0:a # Track order in the output: video, mix (a:0), originals (a:1, a:2). The order of the -map defines the track order.
             # -disposition:a:0 default # Mark the mix as the 'default' track (the one browsers/players choose).
@@ -248,12 +291,15 @@ while true; do
         # 0, 1 or 3+ audio tracks: keep the original behaviour (no mix).
         ffmpeg -y \
             -fflags +discardcorrupt \
+            $HW_INIT_ARGS \
             -i "$ENCODE_INPUT" \
             -progress "$PROGRESS_PIPE_FILE" \
             -nostats \
             -map 0 \
-            -c:v libx264 -crf 23 -preset medium -g 60 -c:a aac -b:a 192k -pix_fmt yuv420p \
+            -vf "$VIDEO_CHAIN" \
+            $VIDEO_ENCODE_ARGS -c:a aac -b:a 192k \
             "$OUTPUT"
+            # -vf "$VIDEO_CHAIN" -> applies the video chain of the selected encoder (yuv420p for cpu / nv12+hwupload for vaapi).
     fi
 
     # Cleanup the temporary trimmed file if it was created
