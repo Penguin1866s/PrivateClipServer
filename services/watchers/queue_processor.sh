@@ -39,9 +39,10 @@ build_queue_json() {
 # Same visual result, but the encode runs in the iGPU -> much faster and a fraction of the power.
 
 # The encoder is selected with the VIDEO_ENCODER environment variable (see docker-compose.yml):
-#   auto  -> test the iGPU with a real 1-frame encode, use vaapi if it works, fallback to cpu. (default)
-#   vaapi -> force the Intel iGPU hardware encoder.
-#   cpu   -> force libx264 (brute force).
+#   auto   -> test the iGPU with a real 1-frame encode, use vaapi if it works, fallback to cpu. (default)
+#   hybrid -> the iGPU decodes the original clip and libx264 (CPU) compresses: max compression AND the video silicon is used.
+#   vaapi  -> the full Intel iGPU hardware encoder (fastest and lowest power, but ~10-25% bigger files than libx264).
+#   cpu    -> force libx264 (brute force).
 VIDEO_ENCODER="${VIDEO_ENCODER:-auto}" # If the env var is not set, use 'auto' as default value.
 RENDER_DEVICE="/dev/dri/renderD128"    # The render node of the Intel iGPU (mapped in docker-compose.yml with 'devices:').
 
@@ -53,7 +54,7 @@ if [ "$VIDEO_ENCODER" = "auto" ]; then
         -f lavfi -i color=black:s=64x64:d=0.1 \
         -vf format=nv12,hwupload -c:v h264_vaapi \
         -f null /dev/null 2>/dev/null; then
-        VIDEO_ENCODER="vaapi"
+        VIDEO_ENCODER="vaapi" # The iGPU works: use the full hardware encoder.
     else
         VIDEO_ENCODER="cpu"
     fi
@@ -63,6 +64,10 @@ if [ "$VIDEO_ENCODER" = "vaapi" ]; then
     HW_INIT_ARGS="-vaapi_device $RENDER_DEVICE"       # Open the iGPU device (must go BEFORE the -i input).
     VIDEO_CHAIN="format=nv12,hwupload"                # Convert the frames to nv12 (the pixel format the iGPU expects) and upload them to GPU memory.
     VIDEO_ENCODE_ARGS="-c:v h264_vaapi -qp 24 -g 60"  # -qp 24 -> the hardware quality knob (equivalent role to '-crf 23' in libx264).
+elif [ "$VIDEO_ENCODER" = "hybrid" ]; then
+    HW_INIT_ARGS="-hwaccel vaapi -hwaccel_device $RENDER_DEVICE" # Decode in the iGPU (must go BEFORE the -i input); the decoded frames return to system memory for the CPU encoder. If the iGPU can not decode a codec, ffmpeg falls back to software decode by itself.
+    VIDEO_CHAIN="format=yuv420p"                      # Same chain as the cpu path (libx264 is still the encoder).
+    VIDEO_ENCODE_ARGS="-c:v libx264 -crf 23 -preset medium -g 60"
 else
     HW_INIT_ARGS=""                                   # Nothing to init for the CPU path.
     VIDEO_CHAIN="format=yuv420p"                      # Same effect as the old '-pix_fmt yuv420p' (most compatible web format), expressed as a filter.
