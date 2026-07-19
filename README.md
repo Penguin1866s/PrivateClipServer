@@ -65,6 +65,7 @@ PrivateClipServer turns any Linux machine (or a Windows machine via WSL2) into a
 - 🔑 **Automatic peer registration** — Drop a client's public key as a `.txt` file into `data/keys_inbox/` and the server registers it automatically, no manual editing of config files needed.
 - 🎞️ **Automatic video transcoding** — Upload any `.mp4`, `.mkv`, `.mov` or `.avi` to `raw/` and a transcoded, web-compatible version appears in `processed/` automatically.
 - 🔊 **Mixed default audio track** — Videos with two audio tracks (system + microphone) get a third track mixing both, placed first and marked as `default`, so browsers (which only play one track) reproduce everything. The two original tracks are kept untouched for editing.
+- 🎛️ **Selectable video encoder** — The encoder is chosen with the `VIDEO_ENCODER` variable: `auto` (default) uses the full Intel iGPU hardware encoder (`vaapi`), with automatic fallback to `cpu` on machines without iGPU. `hybrid` (iGPU decode + libx264 max compression) and `cpu` can be forced manually.
 - 📊 **Live progress bar** — A real-time encoding progress bar is injected into the FileBrowser UI via Nginx, showing filename, percentage, ETA, speed, and a queue of pending videos.
 - 🩹 **Corruption-tolerant encoding** — Videos from sources like Nvidia Instant Replay that cut mid-GOP are automatically repaired before transcoding using a Remux-Trim scan strategy.
 - ⚡ **Single-command startup** — One `bash main_use.sh` brings up all four services.
@@ -153,16 +154,40 @@ A container running three background daemons in parallel:
 
 **Audio tracks behaviour:** Browsers (and the FileBrowser HTML5 player) only play ONE audio track - the one marked as `default`. If the uploaded video has exactly 2 audio tracks (e.g. system + microphone from Nvidia Instant Replay), a 3rd track mixing both is generated, placed first (`Mix (System+Mic)`) and marked as `default`: the web UI and normal players reproduce the mix (no echo), while the 2 original tracks (`System`, `Mic`) are kept untouched behind it for editing - just mute/remove the first track (A1) in your editor. Videos with any other number of audio tracks are encoded as before, without a mix.
 
+**Video encoder selection:** The encoder is selected with the `VIDEO_ENCODER` environment variable (docker-compose.yml). On startup the container prints the selected encoder in its logs (`Video encoder selected: ...`).
+
+| Mode | What it does | When to use it |
+|---|---|---|
+| `auto` (default) | Probes the iGPU with a real 1-frame encode: uses `vaapi` if it works, falls back to `cpu` if not (example: WSL2 dev environment). | Always, unless you have a reason to force a mode. |
+| `hybrid` | The Intel iGPU decodes the original clip and libx264 (CPU) compresses: max compression AND the video silicon is used. Same file size as `cpu`. | When you want the libx264 max compression while the iGPU still relieves the CPU of the decode work. |
+| `vaapi` | The full Intel iGPU hardware encoder (Quick Sync): fastest and lowest power, but ~10-25% bigger files than libx264. | The default on the N150 server: the dedicated video silicon does all the work. |
+| `cpu` | libx264 brute force, without touching the iGPU (the original behaviour). | Machines without Intel iGPU, or to rule out the iGPU when debugging. |
+
+To force a mode there are two ways:
+
+```bash
+# One-shot (the variable must go AFTER sudo: placed before it, sudo deletes the variable):
+sudo VIDEO_ENCODER=cpu docker compose up -d
+
+# Persistent (also works with main_use.sh): create a .env file next to docker-compose.yml:
+echo "VIDEO_ENCODER=cpu" > .env
+bash main_use.sh
+```
+
+> The `.env` file is read automatically by docker compose. Delete it (or set `VIDEO_ENCODER=auto`) to return to the automatic selection.
+
+> Forcing `hybrid` or `vaapi` on a machine without a working iGPU makes ffmpeg fail with `Device creation failed`: use `auto` and it will pick the right mode by itself.
+
 **Transcoding settings applied:**
 
 | Parameter | Value | Notes |
 |---|---|---|
-| Video codec | `libx264` | Widely compatible H.264 |
-| CRF | `23` | Good quality/size balance (lower = better quality) |
-| Preset | `medium` | Encoding speed vs compression ratio |
+| Video codec | `libx264` (cpu/hybrid) / `h264_vaapi` (vaapi) | Widely compatible H.264 in every mode |
+| CRF / QP | `-crf 23` (cpu/hybrid) / `-qp 24` (vaapi) | Good quality/size balance (lower = better quality) |
+| Preset | `medium` (cpu/hybrid) | Encoding speed vs compression ratio |
 | Audio codec | `aac` | Standard audio format |
 | Audio bitrate | `192k` | Good audio quality |
-| Pixel format | `yuv420p` | Maximum browser and media player compatibility |
+| Pixel format | `yuv420p` (cpu/hybrid) / `nv12` (vaapi) | Maximum browser and media player compatibility |
 | Corrupt frames | `-fflags +discardcorrupt` | Discards remaining bad frames gracefully |
 | Audio tracks | `-map 0:v -map "[mix]" -map 0:a` (2-track videos) / `-map 0` (others) | Preserves all audio tracks, mix first when generated |
 | Mixed track | `amix=inputs=2:duration=longest:normalize=0` + `-disposition:a:0 default` | Only when the video has exactly 2 audio tracks; marked as `default` so browsers play it |
